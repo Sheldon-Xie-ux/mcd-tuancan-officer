@@ -1,0 +1,19 @@
+# 本地参考用的官方文档，不进仓库
+mcd_readme.md
+mcd_rules.md
+.ref/
+
+# 任何可能含 Token / 个人地址的临时产物
+.env
+*.local.json
+out/
+output/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 系统
+.DS_Store
