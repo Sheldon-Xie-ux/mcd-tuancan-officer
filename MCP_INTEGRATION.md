@@ -34,6 +34,10 @@ Token 来源：手机号登录 [open.mcd.cn/mcp](https://open.mcd.cn/mcp) → �
 | `query-meals` | 拉团餐菜单 | `storeCode`, `beType=6`, `orderType=2`, `beCode`, `reservationDate` | `categories[].meals[].code` |
 | `calculate-price` | 批量钓价 + 三档算价 | `storeCode`, `beType=6`, `orderType=2`, `beCode`, `gmServiceCode`, `items[]`, `reservationDate` | `productList[]`、`price`、`originalPrice`、`packingPrice`、`deliveryPrice`、`enjoyed`、`enjoyable` |
 | `query-meal-detail` | 单品详情、可特制选项 | `storeCode`, `code`, `beType=6`, `orderType=2`, `reservationDate` | `name`、`modification`（可选路径，主流程不依赖） |
+| `query-order` | 单笔结算 | `orderId` | `totalAmount`、`realTotalAmount`、`totalDiscountAmount`、`couponList[]`、`deliveryPrice`、`orderProductList[]` |
+| `order-list` | 月度汇总 | — | `beType`、`createTime`、`storeName`、`realTotalAmount` |
+| `query-survey-coupon` | 评价券检查 | `orderId` | `overallSatisfaction`、`couponTitle`、`couponRedeemStatus` |
+| `query-my-coupons` | 券窗口检查 | `page`、`pageSize` | `title`、`instructions.labels[]`、`instructions.availableTime[]` |
 
 **没有调用 `create-order`。** 见第六节。
 
@@ -80,7 +84,41 @@ Token 来源：手机号登录 [open.mcd.cn/mcp](https://open.mcd.cn/mcp) → �
 
 ---
 
-## 四、三个必须按团餐口径处理的地方
+## 四、结算与对账的口径
+
+事后的数据来自三处：`query-order`（单笔）、`order-list`（历史）、`query-survey-coupon` + `query-my-coupons`（券）。
+
+### 金额五项对平
+
+| 项 | 字段 | 说明 |
+|---|---|---|
+| 商品金额 | `productPrice` / `totalAmount` | 商品部分合计 |
+| 配送费 | `deliveryPrice` | 原价配送费 |
+| 折扣 | `totalDiscountAmount` | 活动与档位折扣 |
+| 优惠券 | `couponList[]` | 逐张券金额 |
+| 实付 | `realTotalAmount` | 真正扣的钱 |
+
+核对式：`商品金额 + 配送费 - 折扣 - 券 = 实付`。差额不为 0 时**不抹平**，直接标出来让用户找门店核实——工具的价值是发现差异，不是把差异藏起来。
+
+另做一次交叉校验：`orderProductList` 里 `price × quantity` 逐项加总，应与 `productPrice` 一致。不一致说明套餐子项的拆分口径不同，会单独提示。
+
+### 分摊用最大余额法，不用四舍五入
+
+按权重分摊时先向下取整到分，剩余的分按小数部分从大到小依次补 1 分。这样合计恒等于实付，规则可解释、可复现——财务复核时能自己验算。
+
+四舍五入的问题在于既不保证总量守恒，也可能既多出又少掉，账永远对不平。
+
+### 券要报可用窗口
+
+`query-my-coupons` 每张券带 `instructions.labels[]`（如「未到使用时间」）与 `instructions.availableTime[]`（如「2026.10.26-2026.10.30」「周一至周五」）。只报张数会漏掉最关键的信息：**现在能不能用、哪几天能用**。
+
+### 团餐订单怎么识别
+
+`order-list` 每条带 `beType`：`1` 到店取餐、`2` 麦乐送、`5` 得来速、`6` 企业团餐。月度汇总按 `beType` 区分口径，不要混算。
+
+---
+
+## 五、三个必须按团餐口径处理的地方
 
 ### 1. `beType` 必须是 6
 
@@ -122,7 +160,7 @@ Token 来源：手机号登录 [open.mcd.cn/mcp](https://open.mcd.cn/mcp) → �
 
 ---
 
-## 五、业务价值
+## 六、业务价值
 
 | 谁用 | 原来怎么做 | 用这个之后 |
 |---|---|---|
@@ -130,12 +168,13 @@ Token 来源：手机号登录 [open.mcd.cn/mcp](https://open.mcd.cn/mcp) → �
 | 企业 HR / 销售 | 不知道门店有没有专人服务、来不来得及 | 方案里直接标出可约/不可约和原因 |
 | 门店侧 | 反复被问"能不能送到座位""多少钱一个人" | 需求进来时已经算好，减少往复 |
 | 活动/团建组织者 | 预算和餐品对不上，超了才发现 | 组合按预算穷举，跑之前就知道人均占用 |
+| 财务 / 行政结账 | 月底手工把订单金额、折扣、券、配送费对一遍，经常差几块钱 | 五项自动对平到分，按部门分摊合计与实付一致 |
 
 核心是把团餐里**隐性的规则**（业务类型、时段、档位折扣、4 小时提前量）变成**显性的输出**，让不懂团餐的人也能一次问对。
 
 ---
 
-## 六、刻意不做的事
+## 七、刻意不做的事
 
 | 不做 | 原因 |
 |---|---|
